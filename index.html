@@ -44,6 +44,8 @@
   #thumbs img{width:64px; height:64px; object-fit:cover; border-radius:8px; border:1px solid var(--line)}
   .val{font-size:12px; color:var(--acc); min-width:44px; text-align:right}
   .hint{font-size:12px; color:var(--muted); margin-top:6px}
+  .drop{margin-top:8px; border:1.5px dashed var(--line); border-radius:8px; padding:10px; text-align:center; color:var(--muted); font-size:13px}
+  .drop.over{border-color:var(--acc); color:var(--acc)}
   #previewCard{position:sticky; top:86px}
   #stageWrap{background:#000; border-radius:12px; overflow:hidden; display:flex; align-items:center; justify-content:center; min-height:300px; border:1px solid var(--line)}
   #previewCanvas{max-width:100%; max-height:70vh; display:block}
@@ -66,7 +68,8 @@
 
     <div class="card">
       <h2><span class="step">1</span> Chọn nhạc</h2>
-      <input type="file" id="audioFile" accept="audio/*">
+      <input type="file" id="audioFile" accept="audio/*,.mp3,.m4a,.wav,.ogg,.oga,.aac,.flac,.wma,.opus">
+      <div id="audioDrop" class="drop">hoặc kéo-thả file nhạc vào đây</div>
       <div class="row" style="margin-top:8px">
         <button class="btn ghost" id="btnDemo">🎧 Dùng nhạc demo (15s)</button>
         <button class="btn ghost" id="btnPlay" disabled>▶ Nghe thử</button>
@@ -76,7 +79,7 @@
 
     <div class="card">
       <h2><span class="step">2</span> Ảnh nền</h2>
-      <input type="file" id="imgFiles" accept="image/*" multiple>
+      <input type="file" id="imgFiles" accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.bmp" multiple>
       <div id="thumbs"></div>
       <div class="seg" style="margin-top:10px" id="bgModeSeg">
         <button data-bg="image" class="on">🖼️ Ảnh</button>
@@ -166,7 +169,7 @@
         <div><label class="lbl">Màu dòng phụ</label><input type="color" id="txtSubColor" value="#00e0c6"></div>
       </div>
       <label class="lbl">Logo (ảnh PNG trong suốt càng đẹp)</label>
-      <input type="file" id="logoFile" accept="image/*">
+      <input type="file" id="logoFile" accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.bmp">
       <div class="row" style="margin-top:8px">
         <div><label class="lbl">Góc đặt logo</label>
           <select id="logoCorner">
@@ -2248,6 +2251,18 @@ async function loadAudioBlob(blob, name){
 $('audioFile').addEventListener('change', e=>{
   const f = e.target.files[0]; if(f) loadAudioBlob(f, f.name);
 });
+/* Kéo-thả file nhạc (không bị lọc bởi hộp thoại chọn file) */
+(()=>{ 
+  const dz=$('audioDrop');
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('over');}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('over');}));
+  dz.addEventListener('drop',e=>{
+    const fs=[...e.dataTransfer.files];
+    const f=fs.find(f=>/^audio\//.test(f.type)||/\.(mp3|m4a|wav|ogg|oga|aac|flac|wma|opus)$/i.test(f.name));
+    if(f) loadAudioBlob(f,f.name);
+    else setStatus('File này không phải nhạc. Thử file MP3/M4A/WAV khác nhé.');
+  });
+})();
 
 /* ---- Nhạc demo: tự tổng hợp 16s bằng WebAudio, không cần file ---- */
 $('btnDemo').addEventListener('click', ()=>{
