@@ -238,7 +238,7 @@
     <div class="hint" style="margin-top:8px">Bấm <b>▶ Nghe thử</b> ở bước 1 để xem sóng nhảy theo nhạc realtime. Mọi chỉnh sửa hiện ngay trên khung này.</div>
   </div>
 </main>
-<footer>SóngNhạc Studio v1.2 — chạy 100% trên máy của bạn, không tải file lên mạng.</footer>
+<footer>SóngNhạc Studio v1.3 — chạy 100% trên máy của bạn, không tải file lên mạng.</footer>
 <script>
 /* ===== mp4-muxer (gộp vào file để chạy offline, không cần mạng) ===== */
 "use strict";
@@ -2156,7 +2156,7 @@ if (typeof module === "object" && typeof module.exports === "object") Object.ass
 'use strict';
 
 const $ = id => document.getElementById(id);
-const NB = 96;                 // số cột phổ
+const NB = 64;                 // số cột phổ (cột to, đậm kiểu Vivu)
 const clamp = (v,a,b) => v<a?a:(v>b?b:v);
 
 /* ---------------- State ---------------- */
@@ -2177,18 +2177,26 @@ const PALETTES = {
   rainbow:'rainbow',
   custom: 'custom',
 };
-function barColor(i, total){
+/* Màu luôn trả về [r,g,b] để vẽ gradient */
+function barRGB(i, total){
   const p = $('palette').value;
-  if(p==='rainbow') return `hsl(${Math.round(i/total*360)},95%,55%)`;
-  if(p==='custom')  return $('vizColor').value;
-  const cols = PALETTES[p], f = i/(total-1)*(cols.length-1), k = Math.floor(f);
-  return cols[Math.min(k, cols.length-2)] && f%1
-    ? mix(cols[Math.min(k,cols.length-1)], cols[Math.min(k+1,cols.length-1)], f%1)
-    : cols[0];
+  if(p==='rainbow') return hslRgb(i/total*360, 95, 55);
+  if(p==='custom')  return hx($('vizColor').value);
+  const cols = PALETTES[p], f = i/(total-1)*(cols.length-1);
+  const k = Math.min(Math.floor(f), cols.length-2), t = f-Math.floor(f);
+  const a = hx(cols[k]), b = hx(cols[k+1]);
+  return a.map((v,j)=>Math.round(v+(b[j]-v)*t));
 }
-function mix(a,b,t){
-  const pa=hx(a), pb=hx(b);
-  return `rgb(${pa.map((v,i)=>Math.round(v+(pb[i]-v)*t)).join(',')})`;
+function hslRgb(h,s,l){
+  s/=100; l/=100;
+  const k=n=>(n+h/30)%12, a=s*Math.min(l,1-l);
+  const f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));
+  return [Math.round(f(0)*255),Math.round(f(8)*255),Math.round(f(4)*255)];
+}
+function rgba(c,a){ return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
+function shadeRGB(c,amt){ // amt -1..1: về đen / về trắng
+  const t=amt<0?0:255, p=Math.abs(amt);
+  return c.map(v=>Math.round(v+(t-v)*p));
 }
 function hx(h){ return [1,3,5].map(i=>parseInt(h.substr(i,2),16)); }
 
@@ -2505,63 +2513,106 @@ function drawVisualizer(ctx,W,H,spec,wave,peaks,beat){
   ctx.lineJoin='round'; ctx.lineCap='round';
   if(style==='bars'||style==='mirror'){
     const areaW=W*0.88, x0=W*0.06, bw=areaW/NB;
-    let areaH, y0;
+    /* Vẽ 1 cột với gradient bóng + tip sáng. dir=1: mọc lên, dir=-1: mọc xuống */
+    const bar=(x,yBase,hMax,v,peakV,dir)=>{
+      const c=barRGB(Math.round((x-x0)/bw),NB);
+      const wpx=Math.max(2,bw*0.74);
+      const h=Math.max(2,v*hMax), bx=x+(bw-wpx)/2;
+      const by=dir===1 ? yBase-h : yBase;
+      const g=ctx.createLinearGradient(0,dir===1?by:by+h,0,dir===1?by+h:by);
+      g.addColorStop(0,rgba(shadeRGB(c,0.55),1));
+      g.addColorStop(0.55,rgba(c,0.95));
+      g.addColorStop(1,rgba(shadeRGB(c,-0.35),0.5));
+      ctx.fillStyle=g;
+      roundRect(ctx,bx,by,wpx,h,Math.min(9,wpx/2));
+      ctx.fill();
+      // tip sáng ở đầu cột
+      const ty=dir===1?by:by+h-Math.max(2,h*0.09);
+      ctx.fillStyle=rgba(shadeRGB(c,0.82),0.92);
+      roundRect(ctx,bx,ty,wpx,Math.max(2,h*0.09),Math.min(4,wpx/2));
+      ctx.fill();
+      // peak cap mờ dần
+      const py=dir===1 ? yBase-peakV*hMax-2 : yBase+peakV*hMax;
+      ctx.fillStyle=rgba(shadeRGB(c,0.7),0.6);
+      ctx.fillRect(bx,py,wpx,2);
+    };
     if(style==='bars'){
-      areaH=H*0.52*sizeFrac;
-      y0 = pos==='top'? H*0.05 : pos==='center'? (H-areaH)/2 : H*0.97-areaH;
-      for(let b=0;b<NB;b++){
-        const v=spec[b], h=Math.max(2,v*areaH), x=x0+b*bw;
-        ctx.fillStyle=barColor(b,NB);
-        const wpx=Math.max(1,bw*0.72);
-        roundRect(ctx,x+(bw-wpx)/2,y0+areaH-h,wpx,h,Math.min(6,wpx/2));
-        ctx.fill();
-        const py=y0+areaH-peaks[b]*areaH-3;
-        ctx.fillStyle='rgba(255,255,255,0.75)';
-        ctx.fillRect(x+(bw-wpx)/2,py,wpx,2);
-      }
+      const areaH=H*0.52*sizeFrac;
+      const y0 = pos==='top'? H*0.05 : pos==='center'? (H-areaH)/2 : H*0.97-areaH;
+      // quầng sáng dưới chân sóng
+      const gc=barRGB(NB>>1,NB);
+      const glow=ctx.createRadialGradient(W/2,y0+areaH,10,W/2,y0+areaH,areaW*0.55);
+      glow.addColorStop(0,rgba(gc,0.26)); glow.addColorStop(1,rgba(gc,0));
+      ctx.fillStyle=glow; ctx.fillRect(x0-20,y0,areaW+40,areaH+20);
+      const yBase=y0+areaH;
+      for(let b=0;b<NB;b++) bar(x0+b*bw,yBase,areaH,spec[b],peaks[b],1);
     }else{
-      areaH=H*0.62*sizeFrac;
+      const areaH=H*0.62*sizeFrac;
       const cy = pos==='top'? H*0.30 : pos==='center'? H*0.5 : H*0.72;
-      y0=cy-areaH/2;
       for(let b=0;b<NB;b++){
-        const v=spec[b], h=Math.max(2,v*areaH/2), x=x0+b*bw;
-        ctx.fillStyle=barColor(b,NB);
-        const wpx=Math.max(1,bw*0.72);
-        ctx.fillRect(x+(bw-wpx)/2,cy-h,wpx,h*2);
+        bar(x0+b*bw,cy,areaH/2,spec[b],peaks[b],1);
+        bar(x0+b*bw,cy,areaH/2,spec[b],peaks[b],-1);
       }
     }
   }else if(style==='radial'){
     const cx=W/2, cy=pos==='top'?H*0.32:pos==='center'?H*0.5:H*0.66;
     const R0=Math.min(W,H)*0.10, R1=R0+Math.min(W,H)*0.30*sizeFrac*(1+beat*0.15);
-    ctx.lineWidth=Math.max(2,(2*Math.PI*R1/NB)*0.55);
+    // quầng sáng nền
+    const gc0=barRGB(0,NB);
+    const gg=ctx.createRadialGradient(cx,cy,R0,cx,cy,R1*1.3);
+    gg.addColorStop(0,rgba(gc0,0.22)); gg.addColorStop(1,rgba(gc0,0));
+    ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(cx,cy,R1*1.3,0,Math.PI*2); ctx.fill();
+    ctx.lineWidth=Math.max(3,(2*Math.PI*R1/NB)*0.6);
     for(let b=0;b<NB;b++){
       const a=b/NB*Math.PI*2-Math.PI/2, v=spec[b];
-      const r0=R0, r1=R0+(R1-R0)*v;
-      ctx.strokeStyle=barColor(b,NB);
-      ctx.beginPath();
-      ctx.moveTo(cx+Math.cos(a)*r0, cy+Math.sin(a)*r0);
-      ctx.lineTo(cx+Math.cos(a)*r1, cy+Math.sin(a)*r1);
-      ctx.stroke();
+      const c=barRGB(b,NB);
+      const r0=R0+2, r1=R0+Math.max(3,(R1-R0)*v);
+      const gx0=cx+Math.cos(a)*r0, gy0=cy+Math.sin(a)*r0;
+      const gx1=cx+Math.cos(a)*r1, gy1=cy+Math.sin(a)*r1;
+      const g=ctx.createLinearGradient(gx0,gy0,gx1,gy1);
+      g.addColorStop(0,rgba(shadeRGB(c,-0.2),0.92));
+      g.addColorStop(1,rgba(shadeRGB(c,0.5),1));
+      ctx.strokeStyle=g;
+      ctx.beginPath(); ctx.moveTo(gx0,gy0); ctx.lineTo(gx1,gy1); ctx.stroke();
+      // chấm sáng đầu tia
+      if(v>0.03){
+        ctx.fillStyle=rgba(shadeRGB(c,0.78),0.95);
+        ctx.beginPath(); ctx.arc(gx1,gy1,ctx.lineWidth*0.42,0,Math.PI*2); ctx.fill();
+      }
     }
-    // vòng tròn tâm
-    ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.arc(cx,cy,R0*0.96,0,Math.PI*2); ctx.stroke();
-  }else{ // wave
+    // vòng tâm đập theo beat
+    ctx.strokeStyle=`rgba(255,255,255,${(0.28+beat*0.5).toFixed(3)})`;
+    ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.arc(cx,cy,R0*(0.94+beat*0.08),0,Math.PI*2); ctx.stroke();
+  }else{ // wave: nhiều lớp sóng + fill bóng dưới
     const bandH=H*0.34*sizeFrac;
     const cy=pos==='top'?H*0.22:pos==='center'?H*0.5:H*0.78;
-    const grad=ctx.createLinearGradient(0,0,W,0);
-    const p=$('palette').value;
-    if(p==='rainbow'){ for(let i=0;i<=8;i++) grad.addColorStop(i/8,`hsl(${i*45},95%,55%)`); }
-    else if(p==='custom'){ grad.addColorStop(0,$('vizColor').value); grad.addColorStop(1,$('vizColor').value); }
-    else{ const c=PALETTES[p]; grad.addColorStop(0,c[0]); grad.addColorStop(0.5,c[1]); grad.addColorStop(1,c[2]); }
-    ctx.strokeStyle=grad; ctx.lineWidth=Math.max(2,H*0.006);
-    ctx.shadowColor=grad; ctx.shadowBlur=14;
-    ctx.beginPath();
-    for(let i=0;i<256;i++){
-      const x=W*0.05+i/255*W*0.9, y=cy+wave[i]*bandH/2*(1+beat*0.3);
-      i?ctx.lineTo(x,y):ctx.moveTo(x,y);
-    }
-    ctx.stroke(); ctx.shadowBlur=0;
+    const c0=barRGB(0,NB), c1=barRGB(NB-1,NB);
+    const path=(yOff)=>{
+      ctx.beginPath();
+      for(let i=0;i<256;i++){
+        const x=W*0.05+i/255*W*0.9, y=cy+wave[i]*bandH/2*(1+beat*0.3)+yOff;
+        if(i)ctx.lineTo(x,y); else ctx.moveTo(x,y);
+      }
+    };
+    // fill bóng dưới sóng chính
+    path(0);
+    ctx.lineTo(W*0.95,cy+bandH/2); ctx.lineTo(W*0.05,cy+bandH/2); ctx.closePath();
+    const fg=ctx.createLinearGradient(0,cy-bandH/2,0,cy+bandH/2);
+    fg.addColorStop(0,rgba(c0,0.32)); fg.addColorStop(1,rgba(c0,0.02));
+    ctx.fillStyle=fg; ctx.fill();
+    // 2 lớp echo mờ
+    ctx.lineWidth=Math.max(2,H*0.004);
+    ctx.strokeStyle=rgba(c1,0.30); path(-bandH*0.10); ctx.stroke();
+    ctx.strokeStyle=rgba(c1,0.16); path(bandH*0.12); ctx.stroke();
+    // sóng chính phát sáng
+    const mg=ctx.createLinearGradient(W*0.05,0,W*0.95,0);
+    mg.addColorStop(0,rgba(c0,1));
+    mg.addColorStop(0.5,rgba(shadeRGB(c0,0.4),1));
+    mg.addColorStop(1,rgba(c1,1));
+    ctx.strokeStyle=mg; ctx.lineWidth=Math.max(3,H*0.007);
+    ctx.shadowColor=rgba(c0,0.8); ctx.shadowBlur=16;
+    path(0); ctx.stroke(); ctx.shadowBlur=0;
   }
   ctx.restore();
 }
